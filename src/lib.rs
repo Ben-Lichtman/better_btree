@@ -281,7 +281,7 @@ where
 		let bubble_key = read(self.keys.get_unchecked(new_left_len as usize)).assume_init();
 		let bubble_value = read(self.values.get_unchecked(new_left_len as usize)).assume_init();
 
-		self.len -= new_left_len;
+		self.len = new_left_len;
 
 		(Box::new(new_node), (bubble_key, bubble_value))
 	}
@@ -407,7 +407,7 @@ where
 		let bubble_key = read(self.keys.get_unchecked(new_left_len as usize)).assume_init();
 		let bubble_value = read(self.values.get_unchecked(new_left_len as usize)).assume_init();
 
-		self.len -= new_left_len;
+		self.len = new_left_len;
 
 		(Box::new(new_node), (bubble_key, bubble_value))
 	}
