@@ -1,4 +1,5 @@
 use std::{
+	hint::unreachable_unchecked,
 	mem::{replace, MaybeUninit},
 	ptr::{copy, copy_nonoverlapping, null_mut, read},
 };
@@ -43,6 +44,13 @@ where
 			}
 			NodeInsertResult::Existed(v) => Some(v),
 			NodeInsertResult::Ok => None,
+		}
+	}
+
+	pub fn remove(&mut self, key: K) -> Option<V> {
+		match self.root.remove(key) {
+			NodeRemoveResult::NotThere => None,
+			NodeRemoveResult::Removed(value) => Some(value),
 		}
 	}
 }
@@ -111,6 +119,17 @@ where
 	Ok,
 }
 
+#[must_use]
+#[derive(Debug)]
+// FIXME remove the requirement that K: Debug, V: Debug
+pub enum NodeRemoveResult<V>
+where
+	V: Debug,
+{
+	NotThere,
+	Removed(V),
+}
+
 // FIXME remove the requirement that K: Debug, V: Debug
 impl<K, V> Node<K, V>
 where
@@ -140,6 +159,7 @@ where
 				let value_in_array = unsafe { self.values.get_unchecked_mut(index) };
 				let old_value_maybeuninit = replace(value_in_array, MaybeUninit::new(value));
 				let old_value = unsafe { old_value_maybeuninit.assume_init() };
+
 				return NodeInsertResult::Existed(old_value);
 			}
 			Err(index) => index,
@@ -197,6 +217,46 @@ where
 		}
 	}
 
+	pub fn remove(&mut self, key: K) -> NodeRemoveResult<V> {
+		let keys_valid = unsafe {
+			&mut *(self.keys.get_unchecked_mut(..self.len as usize) as *mut _ as *mut [K])
+		};
+
+		match keys_valid.binary_search(&key) {
+			Ok(index) => {
+				let left_child_link =
+					unsafe { self.children.get_unchecked_mut(index).assume_init() };
+				match unsafe { left_child_link.as_mut() } {
+					None => {
+						// We are a leaf node - simply remove the item
+						let value = unsafe { self.remove_at_index_unchecked_leaf(index) };
+						NodeRemoveResult::Removed(value)
+					}
+					Some(child) => {
+						// We are not a leaf node
+						todo!("The rest of the fucking recursion")
+					}
+				}
+			}
+			Err(index) => {
+				// Have not yet found the key
+				let child_link = unsafe { self.children.get_unchecked_mut(index).assume_init() };
+				match unsafe { child_link.as_mut() } {
+					None => return NodeRemoveResult::NotThere,
+					Some(child) => match child.remove(key) {
+						NodeRemoveResult::NotThere => NodeRemoveResult::NotThere,
+						NodeRemoveResult::Removed(value) => {
+							unsafe { self.rebalance(index) };
+							NodeRemoveResult::Removed(value)
+						}
+					},
+				}
+			}
+		}
+	}
+
+	fn len(&self) -> u8 { self.len }
+
 	// Insert an element into the leaf node at an index
 	// Makes the assumption that the node has enough capacity for the new element
 	unsafe fn insert_at_index_unchecked_leaf(&mut self, key: K, value: V, index: usize) {
@@ -204,7 +264,7 @@ where
 
 		let copy_len = self.len as usize - index;
 
-		let copy_src = self.keys.as_mut_ptr().add(index);
+		let copy_src = self.keys.as_ptr().add(index);
 		let copy_dst = self.keys.as_mut_ptr().add(index + 1);
 
 		// Copy keys forward
@@ -212,7 +272,7 @@ where
 		// Insert new key
 		*self.keys.get_unchecked_mut(index) = MaybeUninit::new(key);
 
-		let copy_src = self.values.as_mut_ptr().add(index);
+		let copy_src = self.values.as_ptr().add(index);
 		let copy_dst = self.values.as_mut_ptr().add(index + 1);
 
 		// Copy values forward
@@ -298,7 +358,7 @@ where
 
 		let copy_len = self.len as usize - index;
 
-		let copy_src = self.keys.as_mut_ptr().add(index);
+		let copy_src = self.keys.as_ptr().add(index);
 		let copy_dst = self.keys.as_mut_ptr().add(index + 1);
 
 		// Copy keys forward
@@ -306,7 +366,7 @@ where
 		// Insert new key
 		*self.keys.get_unchecked_mut(index) = MaybeUninit::new(key);
 
-		let copy_src = self.values.as_mut_ptr().add(index);
+		let copy_src = self.values.as_ptr().add(index);
 		let copy_dst = self.values.as_mut_ptr().add(index + 1);
 
 		// Copy values forward
@@ -315,7 +375,7 @@ where
 		*self.values.get_unchecked_mut(index) = MaybeUninit::new(value);
 
 		// Copy length must be at least 1 since we are always copying the rightmost pointer
-		let copy_src = self.children.as_mut_ptr().add(index + 1);
+		let copy_src = self.children.as_ptr().add(index + 1);
 		let copy_dst = self.children.as_mut_ptr().add(index + 2);
 
 		// Copy children forward
@@ -410,5 +470,117 @@ where
 		self.len = new_left_len;
 
 		(Box::new(new_node), (bubble_key, bubble_value))
+	}
+
+	unsafe fn remove_at_index_unchecked_leaf(&mut self, index: usize) -> V {
+		debug_assert!(index <= self.len as usize);
+
+		let removed_value = self.values.get_unchecked(index).as_ptr().read();
+
+		let copy_len = self.len as usize - index - 1;
+
+		let copy_src = self.keys.as_ptr().add(index + 1);
+		let copy_dst = self.keys.as_mut_ptr().add(index);
+
+		// Copy keys backwards
+		copy(copy_src, copy_dst, copy_len);
+
+		let copy_src = self.values.as_ptr().add(index + 1);
+		let copy_dst = self.values.as_mut_ptr().add(index);
+
+		// Copy values backwards
+		copy(copy_src, copy_dst, copy_len);
+
+		self.len -= 1;
+
+		removed_value
+	}
+
+	unsafe fn remove_last(&mut self) -> (V, *mut Node<K, V>) {
+		let index = self.len() as usize;
+
+		let removed_value = self.values.get_unchecked(index).as_ptr().read();
+		let removed_child = self.children.get_unchecked(index + 1).as_ptr().read();
+
+		self.len -= 1;
+
+		(removed_value, removed_child)
+	}
+
+	unsafe fn remove_first(&mut self) -> (V, *mut Node<K, V>) {
+		let removed_value = self.values.get_unchecked(0).as_ptr().read();
+		let removed_child = self.children.get_unchecked(0).as_ptr().read();
+
+		let copy_len = self.len as usize - 1;
+
+		let copy_src = self.keys.as_ptr().add(1);
+		let copy_dst = self.keys.as_mut_ptr().add(0);
+
+		// Copy keys backwards
+		copy(copy_src, copy_dst, copy_len);
+
+		let copy_src = self.values.as_ptr().add(1);
+		let copy_dst = self.values.as_mut_ptr().add(0);
+
+		// Copy values backwards
+		copy(copy_src, copy_dst, copy_len);
+
+		let copy_src = self.children.as_ptr().add(1);
+		let copy_dst = self.children.as_mut_ptr().add(0);
+
+		// Copy children backwards
+		copy(copy_src, copy_dst, copy_len);
+
+		self.len -= 1;
+
+		(removed_value, removed_child)
+	}
+
+	unsafe fn rebalance(&mut self, child_index: usize) {
+		let child_link = self.children.get_unchecked_mut(child_index).assume_init();
+		let child = match child_link.as_mut() {
+			None => unreachable_unchecked(),
+			Some(child) => child,
+		};
+
+		let child_len = child.len();
+		if child_len >= B / 2 {
+			// No rebalancing needed - early exit
+			return;
+		}
+
+		let (selected_sibling_index, left_sibling) = match child_index {
+			0 => (child_index + 1, false),
+			_ => (child_index - 1, true),
+		};
+
+		let sibling_link = self
+			.children
+			.get_unchecked_mut(selected_sibling_index)
+			.assume_init();
+		let sibling = match sibling_link.as_mut() {
+			None => unreachable_unchecked(),
+			Some(sibling) => sibling,
+		};
+
+		let sibling_len = sibling.len();
+		if sibling_len >= B / 2 {
+			// Do rotation
+			if left_sibling {
+				todo!()
+			}
+			else {
+				todo!()
+			}
+		}
+		else {
+			// Do merge
+			if left_sibling {
+				todo!()
+			}
+			else {
+				todo!()
+			}
+		}
 	}
 }

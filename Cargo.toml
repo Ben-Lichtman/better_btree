@@ -1,5 +1,5 @@
 [package]
-name = "btree"
+name = "better_btree"
 version = "0.1.0"
 authors = ["Ben-Lichtman <>"]
 edition = "2018"
