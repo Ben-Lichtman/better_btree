@@ -2,29 +2,22 @@ use std::{
 	fmt::Debug,
 	hint::unreachable_unchecked,
 	mem::{replace, MaybeUninit},
-	ptr::{copy, copy_nonoverlapping, null_mut},
+	ptr::{copy, copy_nonoverlapping, drop_in_place, null_mut},
 };
 
 const B: u8 = 4;
 
 #[derive(Debug)]
-// FIXME remove the requirement that K: Debug, V: Debug
 pub struct BTree<K, V>
 where
 	K: Ord,
-	K: Debug,
-	V: Debug,
 {
 	root: Node<K, V>,
 }
 
-// FIXME remove the requirement that K: Debug, V: Debug
 impl<K, V> BTree<K, V>
 where
 	K: Ord,
-	K: Debug,
-	V: Debug,
-	K: Copy,
 {
 	pub fn new() -> Self { Self { root: Node::new() } }
 
@@ -65,12 +58,9 @@ where
 	}
 }
 
-// FIXME remove the requirement that K: Debug, V: Debug
 pub struct Node<K, V>
 where
 	K: Ord,
-	K: Debug,
-	V: Debug,
 {
 	len: u8,
 	keys: [MaybeUninit<K>; (B - 1) as usize],
@@ -78,11 +68,40 @@ where
 	children: [MaybeUninit<*mut Node<K, V>>; B as usize],
 }
 
-impl<K, V> std::fmt::Debug for Node<K, V>
+impl<K, V> Drop for Node<K, V>
 where
 	K: Ord,
-	K: std::fmt::Debug,
-	V: std::fmt::Debug,
+{
+	fn drop(&mut self) {
+		let len = self.len;
+
+		let keys_valid =
+			unsafe { self.keys.get_unchecked_mut(..len as usize) as *mut _ as *mut [K] };
+		let values_valid =
+			unsafe { self.values.get_unchecked_mut(..len as usize) as *mut _ as *mut [V] };
+		let children_valid = unsafe {
+			let bound = if len != 0 { len as usize + 1 } else { 0 };
+			&mut *(self.children.get_unchecked_mut(..bound) as *mut _ as *mut [*mut Node<K, V>])
+		};
+
+		unsafe {
+			drop_in_place(keys_valid);
+			drop_in_place(values_valid);
+		}
+		children_valid
+			.into_iter()
+			.filter(|p| !p.is_null())
+			.for_each(|p| unsafe {
+				Box::from_raw(*p);
+			});
+	}
+}
+
+impl<K, V> Debug for Node<K, V>
+where
+	K: Ord,
+	K: Debug,
+	V: Debug,
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let children = self
@@ -114,12 +133,9 @@ where
 
 #[must_use]
 #[derive(Debug)]
-// FIXME remove the requirement that K: Debug, V: Debug
 pub enum NodeInsertResult<K, V>
 where
 	K: Ord,
-	K: Debug,
-	V: Debug,
 {
 	Split {
 		new_node: Box<Node<K, V>>,
@@ -131,22 +147,15 @@ where
 
 #[must_use]
 #[derive(Debug)]
-// FIXME remove the requirement that K: Debug, V: Debug
-pub enum NodeRemoveResult<V>
-where
-	V: Debug,
-{
+pub enum NodeRemoveResult<V> {
 	NotThere,
 	Removed(V),
 	Merged(V),
 }
 
-// FIXME remove the requirement that K: Debug, V: Debug
 impl<K, V> Node<K, V>
 where
 	K: Ord,
-	K: Debug,
-	V: Debug,
 {
 	#[inline(never)]
 	pub fn new() -> Self {
@@ -601,7 +610,7 @@ where
 		(removed_key, removed_value, Box::from_raw(removed_child))
 	}
 
-	unsafe fn remove_last(&mut self) -> (K, V, Box<Node<K, V>>) {
+	unsafe fn remove_last(&mut self) -> (K, V, *mut Node<K, V>) {
 		let len = self.len() as usize;
 
 		let removed_key = self.keys.get_unchecked(len - 1).as_ptr().read();
@@ -610,7 +619,7 @@ where
 
 		self.len -= 1;
 
-		(removed_key, removed_value, Box::from_raw(removed_child))
+		(removed_key, removed_value, removed_child)
 	}
 
 	unsafe fn remove_first(&mut self) -> (K, V, Box<Node<K, V>>) {
@@ -643,7 +652,7 @@ where
 		(removed_key, removed_value, Box::from_raw(removed_child))
 	}
 
-	unsafe fn insert_first(&mut self, key: K, value: V, child: Box<Node<K, V>>) {
+	unsafe fn insert_first(&mut self, key: K, value: V, child: *mut Node<K, V>) {
 		let copy_len = self.len as usize;
 
 		// Copy keys forward
@@ -667,7 +676,7 @@ where
 		// Insert new key / value / child
 		*self.keys.get_unchecked_mut(0).as_mut_ptr() = key;
 		*self.values.get_unchecked_mut(0).as_mut_ptr() = value;
-		*self.children.get_unchecked_mut(0).as_mut_ptr() = Box::into_raw(child);
+		*self.children.get_unchecked_mut(0).as_mut_ptr() = child;
 
 		self.len += 1;
 	}
@@ -734,7 +743,7 @@ where
 		}
 		else {
 			// Do merge
-			let (mut left_node, key, value, mut right_node) = match left_sibling {
+			let (left_node, key, value, mut right_node) = match left_sibling {
 				true => {
 					let (key, value, child) = self.remove_at_index_unchecked_internal(pivot_index);
 					(sibling, key, value, child)
