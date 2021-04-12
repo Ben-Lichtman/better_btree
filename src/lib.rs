@@ -5,7 +5,7 @@ use std::{
 	ptr::{copy, copy_nonoverlapping, drop_in_place, null_mut},
 };
 
-const B: u8 = 4;
+const B: u8 = 32;
 
 #[derive(Debug)]
 pub struct BTree<K, V>
