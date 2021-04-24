@@ -5,7 +5,7 @@ use std::{
 	ptr::{copy, copy_nonoverlapping, drop_in_place, null_mut},
 };
 
-const B: u8 = 3;
+const B: u8 = 13;
 
 #[derive(Debug)]
 pub struct BTreeMap<K, V>
@@ -18,7 +18,6 @@ where
 impl<K, V> BTreeMap<K, V>
 where
 	K: Ord,
-	K: Debug,
 {
 	pub fn new() -> Self { Self { root: Node::new() } }
 
@@ -70,7 +69,6 @@ where
 impl<K> BTreeSet<K>
 where
 	K: Ord,
-	K: Debug,
 {
 	pub fn new() -> Self { Self { root: Node::new() } }
 
@@ -210,7 +208,6 @@ enum NodeRemoveResult<V> {
 impl<K, V> Node<K, V>
 where
 	K: Ord,
-	K: Debug,
 {
 	#[inline(never)]
 	pub fn new() -> Self {
@@ -707,7 +704,7 @@ where
 		};
 
 		let child_len = child.len();
-		if child_len >= B / 2 {
+		if child_len >= (B - 1) / 2 {
 			// No rebalancing needed - early exit
 			return false;
 		}
