@@ -213,6 +213,7 @@ where
 	pub fn new() -> Self {
 		Self {
 			len: 0,
+			// SAFETY: Sound since underlying arrays are MaybeUninit
 			keys: unsafe { MaybeUninit::uninit().assume_init() },
 			values: unsafe { MaybeUninit::uninit().assume_init() },
 			children: [MaybeUninit::new(null_mut()); B as usize],
@@ -220,6 +221,7 @@ where
 	}
 
 	pub fn insert(&mut self, key: K, value: V) -> NodeInsertResult<K, V> {
+		// SAFETY: self.len always represents the number of valid initialised elements of the array therefore this subslice is valid
 		let keys_valid = unsafe {
 			&mut *(self.keys.get_unchecked_mut(..self.len as usize) as *mut _ as *mut [K])
 		};
@@ -228,7 +230,9 @@ where
 			Ok(index) => {
 				// Key exists already - swap value and return
 
+				// SAFETY: greater_index must be within the valid array subslice since it is always < self.len
 				let value_in_array = unsafe { self.values.get_unchecked_mut(index) };
+				// SAFETY: This value comes from the valid subslice of the array and therefore is valid
 				let old_value_maybeuninit = replace(value_in_array, MaybeUninit::new(value));
 				let old_value = unsafe { old_value_maybeuninit.assume_init() };
 
@@ -237,20 +241,25 @@ where
 			Err(index) => index,
 		};
 
-		let child_link = unsafe { self.children.get_unchecked_mut(greater_index).assume_init() };
+		// SAFETY: greater_index must be within the valid array subslice since it is always < self.len + 1
+		let left_child_link =
+			unsafe { self.children.get_unchecked_mut(greater_index).assume_init() };
 
-		match unsafe { child_link.as_mut() } {
+		// SAFETY: Since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
+		match unsafe { left_child_link.as_mut() } {
 			None => {
 				// We are a leaf node - insert and bubble back up
 
 				if self.len < (B - 1) {
 					// Add to node
 
+					// SAFETY: greater_index must be <= self.len therefore invariants upheld
 					unsafe { self.insert_at_index_unchecked_leaf(key, value, greater_index) };
 
 					NodeInsertResult::Ok
 				}
 				else {
+					// SAFETY: greater_index must be <= self.len therefore invariants upheld
 					let (new_node, bubble) =
 						unsafe { self.split_leaf_node_unchecked(key, value, greater_index) };
 					NodeInsertResult::Split { new_node, bubble }
@@ -266,6 +275,7 @@ where
 						if self.len < (B - 1) {
 							// Add to node
 
+							// SAFETY: greater_index must be <= self.len therefore invariants upheld
 							unsafe {
 								self.insert_at_index_unchecked_internal(
 									Box::into_raw(new_node),
@@ -276,6 +286,7 @@ where
 							NodeInsertResult::Ok
 						}
 						else {
+							// SAFETY: greater_index must be <= self.len therefore invariants upheld
 							let (new_node, bubble) = unsafe {
 								self.split_internal_node_unchecked(new_node, bubble, greater_index)
 							};
@@ -290,17 +301,21 @@ where
 	}
 
 	pub fn remove(&mut self, key: K) -> NodeRemoveResult<V> {
+		// SAFETY: self.len always represents the number of valid initialised elements of the array therefore this subslice is valid
 		let keys_valid = unsafe {
 			&mut *(self.keys.get_unchecked_mut(..self.len as usize) as *mut _ as *mut [K])
 		};
 
 		match keys_valid.binary_search(&key) {
 			Ok(index) => {
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 				let left_child_link =
 					unsafe { self.children.get_unchecked_mut(index).assume_init() };
+				// SAFETY: Since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
 				match unsafe { left_child_link.as_mut() } {
 					None => {
 						// We are a leaf node - simply remove the item
+						// SAFETY: greater_index must be < self.len therefore invariants upheld
 						let (_, value) = unsafe { self.remove_at_index_unchecked_leaf(index) };
 						NodeRemoveResult::Removed(value)
 					}
@@ -308,8 +323,10 @@ where
 						// We are not a leaf node
 
 						// Get pointers to the key and value to pass into the recursion
+						// SAFETY: index must be within the valid array subslice since it is always < self.len
 						let indexed_key_ptr =
 							unsafe { self.keys.get_unchecked_mut(index).as_mut_ptr() };
+						// SAFETY: index must be within the valid array subslice since it is always < self.len
 						let indexed_value_ptr =
 							unsafe { self.values.get_unchecked_mut(index).as_mut_ptr() };
 
@@ -317,9 +334,11 @@ where
 						let value = unsafe { indexed_value_ptr.read() };
 
 						// Replace value with new value from leaf node
+						// SAFETY: indexed_key_ptr and indexed_value_ptr must point to valid key and value since they point to an elements within the valid array subslices
 						unsafe { child.swap_with_left_leaf(indexed_key_ptr, indexed_value_ptr) };
 
 						// Unroll recursion - rebalancing along the way
+						// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 						match unsafe { self.rebalance(index) } {
 							false => NodeRemoveResult::Removed(value),
 							true => NodeRemoveResult::Merged(value),
@@ -329,18 +348,22 @@ where
 			}
 			Err(index) => {
 				// Have not yet found the key
-				let child_link = unsafe { self.children.get_unchecked_mut(index).assume_init() };
-				match unsafe { child_link.as_mut() } {
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
+				let left_child_link =
+					unsafe { self.children.get_unchecked_mut(index).assume_init() };
+				// SAFETY: Since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
+				match unsafe { left_child_link.as_mut() } {
 					None => NodeRemoveResult::NotThere,
 					Some(child) => match child.remove(key) {
 						NodeRemoveResult::NotThere => NodeRemoveResult::NotThere,
 						NodeRemoveResult::Removed(value) => {
+							// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 							match unsafe { self.rebalance(index) } {
 								false => NodeRemoveResult::Removed(value),
 								true => NodeRemoveResult::Merged(value),
 							}
 						}
-
+						// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 						NodeRemoveResult::Merged(value) => match unsafe { self.rebalance(index) } {
 							false => NodeRemoveResult::Removed(value),
 							true => NodeRemoveResult::Merged(value),
@@ -690,7 +713,6 @@ where
 	// Used to re-balance the tree after a value is removed
 	// This is called recursively from the leaf node all the way to the root node
 	// SAFETY: child_index must be within bounds ie. <= self.len
-	// SAFETY: child_index must be a valid index of an unbalanced child node
 	unsafe fn rebalance(&mut self, child_index: usize) -> bool {
 		debug_assert!(child_index <= self.len as usize + 1);
 
