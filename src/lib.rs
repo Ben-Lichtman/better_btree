@@ -48,6 +48,7 @@ where
 				if self.root.len() == 0 {
 					// Switch root
 
+					// SAFETY: In order for a merge to have taken place this node must have had at least 2 children therefore index 0 must be a valid node pointer
 					let new_root_ptr = unsafe { self.root.children.get_unchecked(0).assume_init() };
 					let new_root_box = unsafe { Box::from_raw(new_root_ptr) };
 					self.root = *new_root_box;
@@ -99,6 +100,7 @@ where
 				if self.root.len() == 0 {
 					// Switch root
 
+					// SAFETY: In order for a merge to have taken place this node must have had at least 2 children therefore index 0 must be a valid node pointer
 					let new_root_ptr = unsafe { self.root.children.get_unchecked(0).assume_init() };
 					let new_root_box = unsafe { Box::from_raw(new_root_ptr) };
 					self.root = *new_root_box;
@@ -126,19 +128,24 @@ where
 	fn drop(&mut self) {
 		let len = self.len;
 
+		// SAFETY: this is the valid array subslice
 		let keys_valid =
 			unsafe { self.keys.get_unchecked_mut(..len as usize) as *mut _ as *mut [K] };
+		// SAFETY: this is the valid array subslice
 		let values_valid =
 			unsafe { self.values.get_unchecked_mut(..len as usize) as *mut _ as *mut [V] };
+		// SAFETY: this is the valid array subslice - Must special case for len == 0 since that will have 0 children, while len == 1 will have 2 children etc.
 		let children_valid = unsafe {
 			let bound = if len != 0 { len as usize + 1 } else { 0 };
 			&mut *(self.children.get_unchecked_mut(..bound) as *mut _ as *mut [*mut Node<K, V>])
 		};
 
+		// SAFETY: slices have been created from the valid array subslices
 		unsafe {
 			drop_in_place(keys_valid);
 			drop_in_place(values_valid);
 		}
+		// SAFETY: The children valid array subslice is composed of raw pointers from Boxes - must convert each back into a Box before dropping
 		children_valid
 			.into_iter()
 			.filter(|p| !p.is_null())
@@ -165,16 +172,20 @@ where
 				self.len as usize + 1
 			})
 			.enumerate()
-			// All unsafe here is valid due to the above bounds check
+			// SAFETY: bounds check above guarantees we are only iterating the valid array subslice of children
+			// SAFETY: leaf nodes will have null pointers in the child array, so cease inspecting them
 			.take_while(|(_, p)| !unsafe { p.assume_init().is_null() })
+			// SAFETY: have already eleminated null pointers, the rest must be valid
 			.map(|(n, p)| (n, unsafe { (*p).assume_init().as_ref().unwrap() }))
 			.map(|(_, p)| p)
 			.collect::<Vec<_>>();
 		f.debug_struct("Node")
 			.field("len", &self.len)
+			// Taking the valid array subslice
 			.field("keys", &unsafe {
 				&*(&self.keys[..self.len as usize] as *const _ as *const [K])
 			})
+			// Taking the valid array subslice
 			.field("values", &unsafe {
 				&*(&self.values[..self.len as usize] as *const _ as *const [V])
 			})
@@ -232,7 +243,7 @@ where
 
 				// SAFETY: greater_index must be within the valid array subslice since it is always < self.len
 				let value_in_array = unsafe { self.values.get_unchecked_mut(index) };
-				// SAFETY: This value comes from the valid subslice of the array and therefore is valid
+				// SAFETY: this value comes from the valid subslice of the array and therefore is valid
 				let old_value_maybeuninit = replace(value_in_array, MaybeUninit::new(value));
 				let old_value = unsafe { old_value_maybeuninit.assume_init() };
 
@@ -311,7 +322,7 @@ where
 				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 				let left_child_link =
 					unsafe { self.children.get_unchecked_mut(index).assume_init() };
-				// SAFETY: Since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
+				// SAFETY: since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
 				match unsafe { left_child_link.as_mut() } {
 					None => {
 						// We are a leaf node - simply remove the item
@@ -351,7 +362,7 @@ where
 				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
 				let left_child_link =
 					unsafe { self.children.get_unchecked_mut(index).assume_init() };
-				// SAFETY: Since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
+				// SAFETY: since this link comes from the valid array subslice it must either be a valid node pointer or null (if this is a leaf node)
 				match unsafe { left_child_link.as_mut() } {
 					None => NodeRemoveResult::NotThere,
 					Some(child) => match child.remove(key) {
