@@ -538,7 +538,7 @@ where
 			None => {
 				// We are a leaf node
 				// Replace the key and value of the ancestor node
-				let (key, value, _) = self.remove_last();
+				let (key, value) = self.remove_at_index_unchecked_leaf(len);
 				*key_hole = key;
 				*value_hole = value;
 			}
@@ -610,76 +610,76 @@ where
 		(removed_key, removed_value, Box::from_raw(removed_child))
 	}
 
-	unsafe fn remove_last(&mut self) -> (K, V, *mut Node<K, V>) {
-		let len = self.len() as usize;
+	// unsafe fn remove_last(&mut self) -> (K, V, *mut Node<K, V>) {
+	// 	let len = self.len() as usize;
 
-		let removed_key = self.keys.get_unchecked(len - 1).as_ptr().read();
-		let removed_value = self.values.get_unchecked(len - 1).as_ptr().read();
-		let removed_child = self.children.get_unchecked(len).assume_init();
+	// 	let removed_key = self.keys.get_unchecked(len - 1).as_ptr().read();
+	// 	let removed_value = self.values.get_unchecked(len - 1).as_ptr().read();
+	// 	let removed_child = self.children.get_unchecked(len).assume_init();
 
-		self.len -= 1;
+	// 	self.len -= 1;
 
-		(removed_key, removed_value, removed_child)
-	}
+	// 	(removed_key, removed_value, removed_child)
+	// }
 
-	unsafe fn remove_first(&mut self) -> (K, V, Box<Node<K, V>>) {
-		let removed_key = self.keys.get_unchecked(0).as_ptr().read();
-		let removed_value = self.values.get_unchecked(0).as_ptr().read();
-		let removed_child = self.children.get_unchecked(0).assume_init();
+	// unsafe fn remove_first(&mut self) -> (K, V, Box<Node<K, V>>) {
+	// 	let removed_key = self.keys.get_unchecked(0).as_ptr().read();
+	// 	let removed_value = self.values.get_unchecked(0).as_ptr().read();
+	// 	let removed_child = self.children.get_unchecked(0).assume_init();
 
-		let copy_len = self.len as usize - 1;
+	// 	let copy_len = self.len as usize - 1;
 
-		// Copy keys backwards
-		let keys_ptr = self.keys.as_mut_ptr();
-		let copy_src = keys_ptr.add(1);
-		let copy_dst = keys_ptr.add(0);
-		copy(copy_src, copy_dst, copy_len);
+	// 	// Copy keys backwards
+	// 	let keys_ptr = self.keys.as_mut_ptr();
+	// 	let copy_src = keys_ptr.add(1);
+	// 	let copy_dst = keys_ptr.add(0);
+	// 	copy(copy_src, copy_dst, copy_len);
 
-		// Copy values backwards
-		let values_ptr = self.values.as_mut_ptr();
-		let copy_src = values_ptr.add(1);
-		let copy_dst = values_ptr.add(0);
-		copy(copy_src, copy_dst, copy_len);
+	// 	// Copy values backwards
+	// 	let values_ptr = self.values.as_mut_ptr();
+	// 	let copy_src = values_ptr.add(1);
+	// 	let copy_dst = values_ptr.add(0);
+	// 	copy(copy_src, copy_dst, copy_len);
 
-		// Copy children backwards
-		let children_ptr = self.children.as_mut_ptr();
-		let copy_src = children_ptr.add(1);
-		let copy_dst = children_ptr.add(0);
-		copy(copy_src, copy_dst, copy_len + 1);
+	// 	// Copy children backwards
+	// 	let children_ptr = self.children.as_mut_ptr();
+	// 	let copy_src = children_ptr.add(1);
+	// 	let copy_dst = children_ptr.add(0);
+	// 	copy(copy_src, copy_dst, copy_len + 1);
 
-		self.len -= 1;
+	// 	self.len -= 1;
 
-		(removed_key, removed_value, Box::from_raw(removed_child))
-	}
+	// 	(removed_key, removed_value, Box::from_raw(removed_child))
+	// }
 
-	unsafe fn insert_first(&mut self, key: K, value: V, child: *mut Node<K, V>) {
-		let copy_len = self.len as usize;
+	// unsafe fn insert_first(&mut self, key: K, value: V, child: *mut Node<K, V>) {
+	// 	let copy_len = self.len as usize;
 
-		// Copy keys forward
-		let keys_ptr = self.keys.as_mut_ptr();
-		let copy_src = keys_ptr.add(0);
-		let copy_dst = keys_ptr.add(1);
-		copy(copy_src, copy_dst, copy_len);
+	// 	// Copy keys forward
+	// 	let keys_ptr = self.keys.as_mut_ptr();
+	// 	let copy_src = keys_ptr.add(0);
+	// 	let copy_dst = keys_ptr.add(1);
+	// 	copy(copy_src, copy_dst, copy_len);
 
-		// Copy values forward
-		let values_ptr = self.values.as_mut_ptr();
-		let copy_src = values_ptr.add(0);
-		let copy_dst = values_ptr.add(1);
-		copy(copy_src, copy_dst, copy_len);
+	// 	// Copy values forward
+	// 	let values_ptr = self.values.as_mut_ptr();
+	// 	let copy_src = values_ptr.add(0);
+	// 	let copy_dst = values_ptr.add(1);
+	// 	copy(copy_src, copy_dst, copy_len);
 
-		// Copy children forward
-		let children_ptr = self.children.as_mut_ptr();
-		let copy_src = children_ptr.add(0);
-		let copy_dst = children_ptr.add(1);
-		copy(copy_src, copy_dst, copy_len + 1);
+	// 	// Copy children forward
+	// 	let children_ptr = self.children.as_mut_ptr();
+	// 	let copy_src = children_ptr.add(0);
+	// 	let copy_dst = children_ptr.add(1);
+	// 	copy(copy_src, copy_dst, copy_len + 1);
 
-		// Insert new key / value / child
-		*self.keys.get_unchecked_mut(0).as_mut_ptr() = key;
-		*self.values.get_unchecked_mut(0).as_mut_ptr() = value;
-		*self.children.get_unchecked_mut(0).as_mut_ptr() = child;
+	// 	// Insert new key / value / child
+	// 	*self.keys.get_unchecked_mut(0).as_mut_ptr() = key;
+	// 	*self.values.get_unchecked_mut(0).as_mut_ptr() = value;
+	// 	*self.children.get_unchecked_mut(0).as_mut_ptr() = child;
 
-		self.len += 1;
-	}
+	// 	self.len += 1;
+	// }
 
 	unsafe fn rebalance(&mut self, child_index: usize) -> bool {
 		let child_link = self
@@ -721,12 +721,13 @@ where
 
 			let (sibling_key, sibling_value) = match left_sibling {
 				true => {
-					let (key, value, node) = sibling.remove_last();
-					child.insert_first(parent_key, parent_value, node);
+					let (key, value, node) =
+						sibling.remove_at_index_unchecked_internal(sibling_len as usize);
+					child.insert_at_index_unchecked_internal(node, (parent_key, parent_value), 0);
 					(key, value)
 				}
 				false => {
-					let (key, value, node) = sibling.remove_first();
+					let (key, value, node) = sibling.remove_at_index_unchecked_internal(0);
 					child.insert_at_index_unchecked_internal(
 						node,
 						(parent_key, parent_value),
