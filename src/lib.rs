@@ -5,7 +5,7 @@ use std::{
 	ptr::{copy, copy_nonoverlapping, drop_in_place, null_mut},
 };
 
-const B: u8 = 32;
+const B: u8 = 3;
 
 #[derive(Debug)]
 pub struct BTreeMap<K, V>
@@ -18,6 +18,7 @@ where
 impl<K, V> BTreeMap<K, V>
 where
 	K: Ord,
+	K: Debug,
 {
 	pub fn new() -> Self { Self { root: Node::new() } }
 
@@ -69,6 +70,7 @@ where
 impl<K> BTreeSet<K>
 where
 	K: Ord,
+	K: Debug,
 {
 	pub fn new() -> Self { Self { root: Node::new() } }
 
@@ -208,6 +210,7 @@ enum NodeRemoveResult<V> {
 impl<K, V> Node<K, V>
 where
 	K: Ord,
+	K: Debug,
 {
 	#[inline(never)]
 	pub fn new() -> Self {
@@ -268,7 +271,7 @@ where
 
 							unsafe {
 								self.insert_at_index_unchecked_internal(
-									new_node,
+									Box::into_raw(new_node),
 									bubble,
 									greater_index,
 								)
@@ -385,7 +388,7 @@ where
 	// SAFETY: index must be within bounds ie. <= self.len
 	unsafe fn insert_at_index_unchecked_internal(
 		&mut self,
-		new_node: Box<Node<K, V>>,
+		new_node: *mut Node<K, V>,
 		(key, value): (K, V),
 		index: usize,
 	) {
@@ -406,7 +409,7 @@ where
 		copy(copy_src, copy_dst, copy_len);
 
 		// Copy children forward
-		let children_ptr = self.keys.as_mut_ptr();
+		let children_ptr = self.children.as_mut_ptr();
 		let copy_src = children_ptr.add(index + 1);
 		let copy_dst = children_ptr.add(index + 2);
 		copy(copy_src, copy_dst, copy_len);
@@ -414,15 +417,15 @@ where
 		// Insert new key / value / child
 		*self.keys.get_unchecked_mut(index) = MaybeUninit::new(key);
 		*self.values.get_unchecked_mut(index) = MaybeUninit::new(value);
-		*self.children.get_unchecked_mut(index + 1) = MaybeUninit::new(Box::into_raw(new_node));
+		*self.children.get_unchecked_mut(index + 1) = MaybeUninit::new(new_node);
 
 		self.len += 1;
 	}
 
 	// Removes a key / value from a leaf node and shifts the other elements to fit
-	// SAFETY: index must be within bounds ie. <= self.len
+	// SAFETY: index must be within bounds ie. < self.len
 	unsafe fn remove_at_index_unchecked_leaf(&mut self, index: usize) -> (K, V) {
-		debug_assert!(index <= self.len as usize);
+		debug_assert!(index < self.len as usize);
 
 		let removed_key = self.keys.get_unchecked(index).as_ptr().read();
 		let removed_value = self.values.get_unchecked(index).as_ptr().read();
@@ -447,17 +450,21 @@ where
 	}
 
 	// Removes a key / value / child from a leaf node and shifts the other elements to fit
-	// Returns the right child of the removed key / value from the node
-	// SAFETY: index must be within bounds ie. <= self.len
+	// Returns the left or right child of the removed key / value
+	// SAFETY: index must be within bounds ie. < self.len
 	unsafe fn remove_at_index_unchecked_internal(
 		&mut self,
 		index: usize,
-	) -> (K, V, Box<Node<K, V>>) {
-		debug_assert!(index <= self.len as usize);
+		left_child: bool,
+	) -> (K, V, *mut Node<K, V>) {
+		debug_assert!(index < self.len as usize);
 
 		let removed_key = self.keys.get_unchecked(index).as_ptr().read();
 		let removed_value = self.values.get_unchecked(index).as_ptr().read();
-		let removed_child = self.children.get_unchecked(index + 1).assume_init();
+		let removed_child = self
+			.children
+			.get_unchecked(if left_child { index } else { index + 1 })
+			.assume_init();
 
 		let copy_len = self.len as usize - index - 1;
 
@@ -473,15 +480,19 @@ where
 		let copy_dst = values_ptr.add(index);
 		copy(copy_src, copy_dst, copy_len);
 
-		// Copy keys backwards
-		let children_ptr = self.keys.as_mut_ptr();
-		let copy_src = children_ptr.add(index + 2);
-		let copy_dst = children_ptr.add(index + 1);
-		copy(copy_src, copy_dst, copy_len);
+		// Copy children backwards
+		let children_ptr = self.children.as_mut_ptr();
+		let copy_src = children_ptr.add(if left_child { index + 1 } else { index + 2 });
+		let copy_dst = children_ptr.add(if left_child { index } else { index + 1 });
+		copy(
+			copy_src,
+			copy_dst,
+			if left_child { copy_len + 1 } else { copy_len },
+		);
 
 		self.len -= 1;
 
-		(removed_key, removed_value, Box::from_raw(removed_child))
+		(removed_key, removed_value, removed_child)
 	}
 
 	// Splits a leaf node at an index and bubbles up a key / value
@@ -615,7 +626,7 @@ where
 			// Update length
 			self.len = pivot;
 
-			self.insert_at_index_unchecked_internal(new_right_node, bubble, index);
+			self.insert_at_index_unchecked_internal(Box::into_raw(new_right_node), bubble, index);
 
 			// Move child from end of left node to start of right node
 			*new_node.children.get_unchecked_mut(0).as_mut_ptr() =
@@ -633,7 +644,7 @@ where
 			self.len = pivot;
 
 			new_node.insert_at_index_unchecked_internal(
-				new_right_node,
+				Box::into_raw(new_right_node),
 				bubble,
 				index - pivot as usize,
 			);
@@ -696,7 +707,7 @@ where
 		};
 
 		let child_len = child.len();
-		if child_len >= B / 2 - 1 {
+		if child_len >= B / 2 {
 			// No rebalancing needed - early exit
 			return false;
 		}
@@ -716,7 +727,7 @@ where
 		};
 
 		let sibling_len = sibling.len();
-		if sibling_len >= B / 2 {
+		if sibling_len > B / 2 {
 			// Do rotation
 
 			// Copy key / value out of parent
@@ -726,12 +737,12 @@ where
 			let (sibling_key, sibling_value) = match left_sibling {
 				true => {
 					let (key, value, node) =
-						sibling.remove_at_index_unchecked_internal(sibling_len as usize);
+						sibling.remove_at_index_unchecked_internal(sibling_len as usize, false);
 					child.insert_at_index_unchecked_internal(node, (parent_key, parent_value), 0);
 					(key, value)
 				}
 				false => {
-					let (key, value, node) = sibling.remove_at_index_unchecked_internal(0);
+					let (key, value, node) = sibling.remove_at_index_unchecked_internal(0, true);
 					child.insert_at_index_unchecked_internal(
 						node,
 						(parent_key, parent_value),
@@ -750,12 +761,15 @@ where
 			// Do merge
 			let (left_node, key, value, mut right_node) = match left_sibling {
 				true => {
-					let (key, value, child) = self.remove_at_index_unchecked_internal(pivot_index);
+					let (key, value, child) =
+						self.remove_at_index_unchecked_internal(pivot_index, false);
+					let child = Box::from_raw(child);
 					(sibling, key, value, child)
 				}
 				false => {
 					let (key, value, sibling) =
-						self.remove_at_index_unchecked_internal(pivot_index);
+						self.remove_at_index_unchecked_internal(pivot_index, false);
+					let sibling = Box::from_raw(sibling);
 					(child, key, value, sibling)
 				}
 			};
