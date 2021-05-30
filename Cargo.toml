@@ -1,6 +1,6 @@
 [package]
 name = "better_btree"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Ben-Lichtman <>"]
 edition = "2018"
 description = "A reimplementation of a btree"
@@ -8,4 +8,3 @@ repository = "https://github.com/Ben-Lichtman/better_btree"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-
