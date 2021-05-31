@@ -1,6 +1,6 @@
 [package]
 name = "better_btree"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Ben-Lichtman <>"]
 edition = "2018"
 description = "A reimplementation of a btree"
