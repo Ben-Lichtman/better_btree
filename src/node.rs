@@ -6,10 +6,7 @@ use std::{
 };
 
 use crate::{
-	node_ref::{
-		marker::{self, LeafOrInternal},
-		NodeRef,
-	},
+	node_ref::{marker, NodeRef},
 	B,
 };
 
@@ -188,8 +185,7 @@ impl<K, V> LeafNode<K, V> {
 
 		self.insert_unchecked(index, pair);
 
-		let bubble_key = self.keys.get_unchecked(pivot - 1).as_ptr().read();
-		let bubble_value = self.values.get_unchecked(pivot - 1).as_ptr().read();
+		let (bubble_key, bubble_value) = self.remove_unchecked(pivot);
 
 		right_node.len = right_len as u8;
 
@@ -563,12 +559,10 @@ impl<K, V> InternalNode<K, V> {
 
 		self.insert_unchecked_right(index, bubble, bubbled_right_node);
 
-		let bubble_key = self.data.keys.get_unchecked(pivot - 1).as_ptr().read();
-		let bubble_value = self.data.values.get_unchecked(pivot - 1).as_ptr().read();
+		let ((bubble_key, bubble_value), orphan_node) = self.remove_unchecked_right(pivot);
 
 		// Move child from end of right side of left node to left side of right node
-		*right_node.children.get_unchecked_mut(0).as_mut_ptr() =
-			self.children.get_unchecked(pivot).as_ptr().read();
+		*right_node.children.get_unchecked_mut(0).as_mut_ptr() = orphan_node;
 
 		right_node.data.len = right_len as u8;
 
@@ -1039,9 +1033,13 @@ impl<K, V> Drop for InternalNode<K, V> {
 		// drop children
 		if self.len() != 0 {
 			for child in self.valid_children_mut() {
-				let copied_out =
-					unsafe { (child as *mut NodeRef<K, V, marker::Owned, LeafOrInternal>).read() };
-				let is_internal = copied_out.is_internal();
+				let is_internal = child.is_internal();
+
+				let child = child as *mut NodeRef<K, V, marker::Owned, marker::LeafOrInternal>;
+
+				let copied_out = unsafe {
+					(child as *mut NodeRef<K, V, marker::Owned, marker::LeafOrInternal>).read()
+				};
 
 				match is_internal {
 					// SAFETY: we have already checked to make sure that the variant is correct
@@ -1114,11 +1112,8 @@ impl<K, V> RootNode<K, V> {
 						internal: ManuallyDrop::new(InternalNode::new()),
 					},
 				);
-				// Prevent the old root from having drop called on it
-				let old_root = ManuallyDrop::new(old_root);
-				// SAFETY: we have already checked to make sure that the variant is correct
-				let old_root_leaf =
-					unsafe { (old_root.leaf.deref() as *const LeafNode<_, _>).read() };
+				// SAFETY: we have already checked to make sure that this is a leaf node
+				let old_root_leaf = unsafe { old_root.destructure_leaf() };
 				let boxed = Box::new(old_root_leaf);
 				NodeRef::from_boxed_leaf(boxed).into_type_erased()
 			}
@@ -1129,11 +1124,8 @@ impl<K, V> RootNode<K, V> {
 						internal: ManuallyDrop::new(InternalNode::new()),
 					},
 				);
-				// Prevent the old root from having drop called on it
-				let old_root = ManuallyDrop::new(old_root);
-				// SAFETY: we have already checked to make sure that the variant is correct
-				let old_root_internal =
-					unsafe { (old_root.internal.deref() as *const InternalNode<_, _>).read() };
+				// SAFETY: we have already checked to make sure that this is an internal node
+				let old_root_internal = unsafe { old_root.destructure_internal() };
 				let boxed = Box::new(old_root_internal);
 				NodeRef::from_boxed_internal(boxed).into_type_erased()
 			}
@@ -1151,6 +1143,7 @@ impl<K, V> RootNode<K, V> {
 
 		None
 	}
+
 	pub fn remove(&mut self, key: K) -> Option<V>
 	where
 		K: Ord,
@@ -1196,6 +1189,26 @@ impl<K, V> RootNode<K, V> {
 		}
 
 		Some(value)
+	}
+
+	// SAFETY: this node must be a leaf node
+	unsafe fn destructure_leaf(self) -> LeafNode<K, V> {
+		debug_assert!(!self.is_internal());
+
+		// Prevent self from having drop called on it
+		let nodrop = ManuallyDrop::new(self);
+
+		(nodrop.leaf.deref() as *const LeafNode<_, _>).read()
+	}
+
+	// SAFETY: this node must be a leaf node
+	unsafe fn destructure_internal(self) -> InternalNode<K, V> {
+		debug_assert!(self.is_internal());
+
+		// Prevent self from having drop called on it
+		let nodrop = ManuallyDrop::new(self);
+
+		(nodrop.internal.deref() as *const InternalNode<_, _>).read()
 	}
 }
 
