@@ -165,7 +165,7 @@ impl<K, V> LeafNode<K, V> {
 		K: Ord,
 	{
 		debug_assert!(self.len() == B as usize - 1);
-		debug_assert!(index < (B as usize - 1) / 2);
+		debug_assert!(index <= (B as usize - 1) / 2);
 
 		// Create new right node
 		let mut right_node = Self::new();
@@ -534,7 +534,7 @@ impl<K, V> InternalNode<K, V> {
 		K: Ord,
 	{
 		debug_assert!(self.len() == B as usize - 1);
-		debug_assert!(index < (B as usize - 1) / 2);
+		debug_assert!(index <= (B as usize - 1) / 2);
 
 		// Create new right node
 		let mut right_node = Self::new();
