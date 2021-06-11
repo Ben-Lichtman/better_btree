@@ -46,14 +46,20 @@ pub struct LeafNode<K, V> {
 	values: [MaybeUninit<V>; (B - 1) as usize],
 }
 
+// This should later be replaced with MaybeUnint::uninit_array() when stabilised
+#[inline(always)]
+fn uninit_array<T, const LEN: usize>() -> [MaybeUninit<T>; LEN] {
+	// SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
+	unsafe { MaybeUninit::<[MaybeUninit<T>; LEN]>::uninit().assume_init() }
+}
+
 impl<K, V> LeafNode<K, V> {
 	pub fn new() -> Self {
 		Self {
 			len: 0,
 			is_internal: false,
-			// SAFETY: these are sound since the underlying arrays are MaybeUninit
-			keys: unsafe { MaybeUninit::uninit().assume_init() },
-			values: unsafe { MaybeUninit::uninit().assume_init() },
+			keys: uninit_array(),
+			values: uninit_array(),
 		}
 	}
 
@@ -61,9 +67,8 @@ impl<K, V> LeafNode<K, V> {
 		Self {
 			len: 0,
 			is_internal: true,
-			// SAFETY: these are sound since the underlying arrays are MaybeUninit
-			keys: unsafe { MaybeUninit::uninit().assume_init() },
-			values: unsafe { MaybeUninit::uninit().assume_init() },
+			keys: uninit_array(),
+			values: uninit_array(),
 		}
 	}
 
@@ -340,8 +345,7 @@ impl<K, V> InternalNode<K, V> {
 	pub fn new() -> Self {
 		Self {
 			data: LeafNode::new_for_internal(),
-			// SAFETY: this is sound since the underlying array is MaybeUninit
-			children: unsafe { MaybeUninit::uninit().assume_init() },
+			children: uninit_array(),
 		}
 	}
 
