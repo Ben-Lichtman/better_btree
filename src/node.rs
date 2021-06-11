@@ -1056,6 +1056,7 @@ impl<K, V> Drop for InternalNode<K, V> {
 	}
 }
 
+#[repr(C)]
 pub union RootNode<K, V> {
 	leaf: ManuallyDrop<LeafNode<K, V>>,
 	internal: ManuallyDrop<InternalNode<K, V>>,
