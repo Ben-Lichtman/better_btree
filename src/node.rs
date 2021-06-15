@@ -10,7 +10,6 @@ use crate::{
 	B,
 };
 
-#[must_use]
 pub enum NodeInsertResult<K, V> {
 	SplitLeaf {
 		bubble: (K, V),
@@ -24,7 +23,6 @@ pub enum NodeInsertResult<K, V> {
 	Ok,
 }
 
-#[must_use]
 pub enum NodeRemoveResult<K, V> {
 	NotThere,
 	Removed(K, V),
