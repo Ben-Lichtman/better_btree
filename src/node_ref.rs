@@ -1,5 +1,6 @@
 pub mod marker;
 
+use crate::node::{InternalNode, LeafNode};
 use std::{
 	self,
 	fmt::Debug,
@@ -7,8 +8,6 @@ use std::{
 	ops::{Deref, DerefMut},
 	ptr::NonNull,
 };
-
-use crate::node::{InternalNode, LeafNode};
 
 // Type erased immutably borrowed pointer type which points to either a leaf or internal node
 pub struct NodeRef<K, V, BorrowType, NodeKind> {
@@ -119,7 +118,7 @@ impl<K, V> NodeRef<K, V, marker::Owned, marker::InternalNode> {
 }
 
 impl<K, V, Type> NodeRef<K, V, marker::Owned, Type> {
-	pub fn as_ref<'a>(&'a self) -> NodeRef<K, V, marker::Immut<'a>, Type> {
+	pub fn as_ref(&self) -> NodeRef<K, V, marker::Immut<'_>, Type> {
 		let pointer = self.pointer;
 		NodeRef {
 			pointer,
@@ -127,7 +126,7 @@ impl<K, V, Type> NodeRef<K, V, marker::Owned, Type> {
 		}
 	}
 
-	pub fn as_mut<'a>(&'a mut self) -> NodeRef<K, V, marker::Mut<'a>, Type> {
+	pub fn as_mut(&mut self) -> NodeRef<K, V, marker::Mut<'_>, Type> {
 		let pointer = self.pointer;
 		NodeRef {
 			pointer,

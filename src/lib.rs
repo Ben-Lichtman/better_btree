@@ -3,7 +3,7 @@ mod node_ref;
 
 use crate::node::RootNode;
 
-const B: u16 = 3;
+const B: u16 = 12;
 
 #[derive(Debug)]
 pub struct BTreeSet<K> {
@@ -20,9 +20,16 @@ where
 		}
 	}
 
-	pub fn insert(&mut self, key: K) -> Option<()> { self.root.insert(key, ()) }
+	pub fn insert(&mut self, key: K) -> bool { self.root.insert(key, ()).is_some() }
 
-	pub fn remove(&mut self, key: K) -> Option<()> { self.root.remove(key) }
+	pub fn remove(&mut self, key: &K) -> bool { self.root.remove(key).is_some() }
+}
+
+impl<K> Default for BTreeSet<K>
+where
+	K: Ord,
+{
+	fn default() -> Self { Self::new() }
 }
 
 #[derive(Debug)]
@@ -42,5 +49,12 @@ where
 
 	pub fn insert(&mut self, key: K, value: V) -> Option<V> { self.root.insert(key, value) }
 
-	pub fn remove(&mut self, key: K) -> Option<V> { self.root.remove(key) }
+	pub fn remove(&mut self, key: &K) -> Option<V> { self.root.remove(key) }
+}
+
+impl<K, V> Default for BTreeMap<K, V>
+where
+	K: Ord,
+{
+	fn default() -> Self { Self::new() }
 }

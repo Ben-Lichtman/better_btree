@@ -1,13 +1,13 @@
+use crate::{
+	node_ref::{marker, NodeRef},
+	B,
+};
 use std::{
+	cmp::Ordering,
 	fmt::Debug,
 	mem::{replace, ManuallyDrop, MaybeUninit},
 	ops::Deref,
 	ptr::{copy, copy_nonoverlapping, drop_in_place},
-};
-
-use crate::{
-	node_ref::{marker, NodeRef},
-	B,
 };
 
 pub enum NodeInsertResult<K, V> {
@@ -51,6 +51,24 @@ fn uninit_array<T, const LEN: usize>() -> [MaybeUninit<T>; LEN] {
 	unsafe { MaybeUninit::<[MaybeUninit<T>; LEN]>::uninit().assume_init() }
 }
 
+const LINEAR_SEARCH: bool = false;
+
+fn search<K: Ord>(needle: &K, haystack: &[K]) -> Result<usize, usize> {
+	if LINEAR_SEARCH {
+		for (n, key) in haystack.iter().enumerate() {
+			match key.cmp(needle) {
+				Ordering::Greater => return Err(n),
+				Ordering::Equal => return Ok(n),
+				Ordering::Less => (),
+			}
+		}
+		Err(haystack.len())
+	}
+	else {
+		haystack.binary_search(needle)
+	}
+}
+
 impl<K, V> LeafNode<K, V> {
 	pub fn new() -> Self {
 		Self {
@@ -78,7 +96,8 @@ impl<K, V> LeafNode<K, V> {
 	where
 		K: Ord,
 	{
-		let index = self.valid_keys_mut().binary_search(&key);
+		let index = search(&key, self.valid_keys());
+
 		match index {
 			Ok(index) => {
 				// Key exists already - swap value and return
@@ -114,13 +133,13 @@ impl<K, V> LeafNode<K, V> {
 		}
 	}
 
-	pub fn remove(&mut self, key: K) -> NodeRemoveResult<K, V>
+	pub fn remove(&mut self, key: &K) -> NodeRemoveResult<K, V>
 	where
 		K: Ord,
 	{
-		let valid_keys = self.valid_keys();
+		let index = search(key, self.valid_keys());
 
-		match valid_keys.binary_search(&key) {
+		match index {
 			Ok(index) => {
 				// SAFETY: index < self.len therefore this is sound
 				let (key, value) = unsafe { self.remove_unchecked(index) };
@@ -208,7 +227,7 @@ impl<K, V> LeafNode<K, V> {
 		K: Ord,
 	{
 		debug_assert!(self.len() == B as usize - 1);
-		debug_assert!(index <= B as usize - 1);
+		debug_assert!(index < B as usize);
 		debug_assert!(index >= (B as usize - 1) / 2);
 
 		// Create new right node
@@ -347,7 +366,7 @@ impl<K, V> InternalNode<K, V> {
 		}
 	}
 
-	pub fn is_internal(&self) -> bool { self.data.is_internal() }
+	pub fn _is_internal(&self) -> bool { self.data.is_internal() }
 
 	pub fn len(&self) -> usize { self.data.len() }
 
@@ -355,7 +374,8 @@ impl<K, V> InternalNode<K, V> {
 	where
 		K: Ord,
 	{
-		let index = self.valid_keys_mut().binary_search(&key);
+		let index = search(&key, self.valid_keys());
+
 		match index {
 			Ok(index) => {
 				// Key exists already - swap value and return
@@ -369,7 +389,13 @@ impl<K, V> InternalNode<K, V> {
 				NodeInsertResult::Existed(old_value)
 			}
 			Err(index) => {
-				let child = self.valid_children_mut()[index].as_mut();
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
+				let child = unsafe {
+					self.children
+						.get_unchecked_mut(index)
+						.assume_init_mut()
+						.as_mut()
+				};
 				let child_result = match child.is_internal() {
 					false => {
 						// SAFETY: we have just checked the type of the child ref so typecasting is sound
@@ -415,16 +441,21 @@ impl<K, V> InternalNode<K, V> {
 		}
 	}
 
-	pub fn remove(&mut self, key: K) -> NodeRemoveResult<K, V>
+	pub fn remove(&mut self, key: &K) -> NodeRemoveResult<K, V>
 	where
 		K: Ord,
 	{
-		let valid_keys = self.valid_keys();
+		let index = search(key, self.valid_keys());
 
-		match valid_keys.binary_search(&key) {
+		match index {
 			Ok(index) => {
-				let indexed_key_ptr = &mut self.valid_keys_mut()[index] as *mut K;
-				let indexed_value_ptr = &mut self.valid_values_mut()[index] as *mut V;
+				// SAFETY: index must be within the valid array subslice since it is always < self.len
+				let indexed_key_ptr =
+					unsafe { self.data.keys.get_unchecked_mut(index).assume_init_mut() } as *mut K;
+				// SAFETY: index must be within the valid array subslice since it is always < self.len
+				let indexed_value_ptr =
+					unsafe { self.data.values.get_unchecked_mut(index).assume_init_mut() }
+						as *mut V;
 
 				// SAFETY: sound since we will be overwriting this key with a key from a leaf node
 				let key = unsafe { indexed_key_ptr.read() };
@@ -432,7 +463,9 @@ impl<K, V> InternalNode<K, V> {
 				// SAFETY: sound since we will be overwriting this value with a value from a leaf node
 				let value = unsafe { indexed_value_ptr.read() };
 
-				let left_child = &mut self.valid_children_mut()[index];
+				// SAFETY: index must be within the valid array subslice since it is always < self.len
+				let left_child =
+					unsafe { self.children.get_unchecked_mut(index).assume_init_mut() };
 
 				match left_child.is_internal() {
 					// SAFETY: we have just checked the type of the child ref so typecasting is sound
@@ -459,7 +492,13 @@ impl<K, V> InternalNode<K, V> {
 				}
 			}
 			Err(index) => {
-				let child = self.valid_children_mut()[index].as_mut();
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
+				let child = unsafe {
+					self.children
+						.get_unchecked_mut(index)
+						.assume_init_mut()
+						.as_mut()
+				};
 				match child.is_internal() {
 					false => {
 						let mut child = unsafe { child.into_leaf() };
@@ -498,11 +537,11 @@ impl<K, V> InternalNode<K, V> {
 
 	fn valid_keys(&self) -> &[K] { self.data.valid_keys() }
 
-	fn valid_keys_mut(&mut self) -> &mut [K] { self.data.valid_keys_mut() }
+	fn _valid_keys_mut(&mut self) -> &mut [K] { self.data.valid_keys_mut() }
 
 	fn valid_values(&self) -> &[V] { self.data.valid_values() }
 
-	fn valid_values_mut(&mut self) -> &mut [V] { self.data.valid_values_mut() }
+	fn _valid_values_mut(&mut self) -> &mut [V] { self.data.valid_values_mut() }
 
 	fn valid_children(&self) -> &[NodeRef<K, V, marker::Owned, marker::LeafOrInternal>] {
 		let len = self.len();
@@ -585,7 +624,7 @@ impl<K, V> InternalNode<K, V> {
 		K: Ord,
 	{
 		debug_assert!(self.len() == B as usize - 1);
-		debug_assert!(index <= B as usize - 1);
+		debug_assert!(index < B as usize);
 		debug_assert!(index >= (B as usize - 1) / 2);
 
 		// Create new right node
@@ -1147,7 +1186,7 @@ impl<K, V> RootNode<K, V> {
 		None
 	}
 
-	pub fn remove(&mut self, key: K) -> Option<V>
+	pub fn remove(&mut self, key: &K) -> Option<V>
 	where
 		K: Ord,
 	{
@@ -1225,9 +1264,9 @@ where
 
 		match is_internal {
 			// SAFETY: we have already checked to make sure that the variant is correct
-			false => unsafe { self.leaf.fmt(f) },
+			false => unsafe { self.leaf.deref().fmt(f) },
 			// SAFETY: we have already checked to make sure that the variant is correct
-			true => unsafe { self.internal.fmt(f) },
+			true => unsafe { self.internal.deref().fmt(f) },
 		}
 	}
 }
