@@ -28,15 +28,13 @@ impl<K, V> InternalNode<K, V> {
 		}
 	}
 
-	pub fn _is_internal(&self) -> bool { self.data.is_internal() }
-
 	pub fn len(&self) -> usize { self.data.len() }
 
 	pub fn insert(&mut self, key: K, value: V) -> NodeInsertResult<K, V>
 	where
 		K: Ord,
 	{
-		let index = search(&key, self.valid_keys());
+		let index = search(&key, self.data.valid_keys());
 
 		match index {
 			Ok(index) => {
@@ -107,7 +105,7 @@ impl<K, V> InternalNode<K, V> {
 	where
 		K: Ord,
 	{
-		let index = search(key, self.valid_keys());
+		let index = search(key, self.data.valid_keys());
 
 		match index {
 			Ok(index) => {
@@ -203,14 +201,6 @@ impl<K, V> InternalNode<K, V> {
 			}
 		}
 	}
-
-	pub fn valid_keys(&self) -> &[K] { self.data.valid_keys() }
-
-	pub fn _valid_keys_mut(&mut self) -> &mut [K] { self.data.valid_keys_mut() }
-
-	pub fn valid_values(&self) -> &[V] { self.data.valid_values() }
-
-	pub fn _valid_values_mut(&mut self) -> &mut [V] { self.data.valid_values_mut() }
 
 	pub fn children(
 		&self,
@@ -773,9 +763,9 @@ where
 		f.debug_struct("InternalNode")
 			.field("len", &self.len())
 			// Taking the valid array subslice
-			.field("keys", &self.valid_keys())
+			.field("keys", &self.data.valid_keys())
 			// Taking the valid array subslice
-			.field("values", &self.valid_values())
+			.field("values", &self.data.valid_values())
 			.field("children", &children)
 			.finish()
 	}
