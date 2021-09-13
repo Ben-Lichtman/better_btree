@@ -1,6 +1,6 @@
 pub mod marker;
 
-use crate::node::{InternalNode, LeafNode};
+use crate::node::{internal_node::InternalNode, leaf_node::LeafNode};
 use std::{
 	self,
 	fmt::Debug,
