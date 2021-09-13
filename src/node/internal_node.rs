@@ -5,7 +5,7 @@ use crate::{
 	},
 	B,
 };
-use std::{
+use core::{
 	fmt::Debug,
 	mem::{replace, MaybeUninit},
 	ptr::{copy, copy_nonoverlapping, drop_in_place},

@@ -2,7 +2,7 @@ use crate::{
 	node::{marker, search, uninit_array, NodeInsertResult, NodeRef, NodeRemoveResult},
 	B,
 };
-use std::{
+use core::{
 	fmt::Debug,
 	mem::{replace, MaybeUninit},
 	ptr::{copy, copy_nonoverlapping, drop_in_place},

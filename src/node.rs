@@ -1,10 +1,11 @@
 pub mod internal_node;
 pub mod leaf_node;
 
-use crate::node_ref::{marker, NodeRef};
-use internal_node::InternalNode;
-use leaf_node::LeafNode;
-use std::{
+use crate::{
+	node::{internal_node::InternalNode, leaf_node::LeafNode},
+	node_ref::{marker, NodeRef},
+};
+use core::{
 	cmp::Ordering,
 	fmt::Debug,
 	mem::{replace, ManuallyDrop, MaybeUninit},

@@ -1,8 +1,7 @@
 pub mod marker;
 
 use crate::node::{internal_node::InternalNode, leaf_node::LeafNode};
-use std::{
-	self,
+use core::{
 	fmt::Debug,
 	marker::PhantomData,
 	ops::{Deref, DerefMut},
