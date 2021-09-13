@@ -19,6 +19,47 @@ impl<'a, K, V, Type> Clone for NodeRef<K, V, marker::Immut<'a>, Type> {
 	fn clone(&self) -> Self { *self }
 }
 
+impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafNode>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self { self.deref().clone() }
+}
+
+impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::InternalNode>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self { self.deref().clone() }
+}
+
+impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafOrInternal>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self {
+		let is_internal = self.is_internal();
+
+		match is_internal {
+			false => {
+				// SAFETY: we have already checked to make sure that the variant is correct
+				let noderef = unsafe { self.as_ref().into_leaf() };
+				let clone = noderef.deref().clone();
+				NodeRef::from_boxed_leaf(Box::new(clone)).into_type_erased()
+			}
+			true => {
+				// SAFETY: we have already checked to make sure that the variant is correct
+				let noderef = unsafe { self.as_ref().into_internal() };
+				let clone = noderef.deref().clone();
+				NodeRef::from_boxed_internal(Box::new(clone)).into_type_erased()
+			}
+		}
+	}
+}
+
 impl<K, V> Debug for NodeRef<K, V, marker::Immut<'_>, marker::LeafOrInternal>
 where
 	K: Debug,
@@ -29,10 +70,12 @@ where
 
 		match is_internal {
 			false => {
+				// SAFETY: we have already checked to make sure that the variant is correct
 				let noderef = unsafe { self.into_leaf() };
 				noderef.fmt(f)
 			}
 			true => {
+				// SAFETY: we have already checked to make sure that the variant is correct
 				let noderef = unsafe { self.into_internal() };
 				noderef.fmt(f)
 			}

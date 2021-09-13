@@ -5,7 +5,7 @@ use crate::node::RootNode;
 
 const B: u16 = 12;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BTreeSet<K> {
 	root: RootNode<K, ()>,
 }
@@ -32,7 +32,7 @@ where
 	fn default() -> Self { Self::new() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BTreeMap<K, V> {
 	root: RootNode<K, V>,
 }

@@ -349,6 +349,46 @@ impl<K, V> Drop for LeafNode<K, V> {
 	}
 }
 
+impl<K, V> Clone for LeafNode<K, V>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self {
+		let len = self.len;
+		let is_internal = self.is_internal;
+		let mut keys = uninit_array();
+		// SAFETY: we know self.keys is valid in the range [0..len)
+		// SAFETY: since we are cloning, the cloned array must also be valid in the same range
+		unsafe {
+			keys.get_unchecked_mut(0..len as usize)
+				.iter_mut()
+				.zip(self.keys.get_unchecked(0..len as usize).iter())
+				.for_each(|(dest, src)| {
+					dest.write(src.assume_init_ref().clone());
+				})
+		}
+		let mut values = uninit_array();
+		// SAFETY: we know self.values is valid in the range [0..len)
+		// SAFETY: since we are cloning, the cloned array must also be valid in the same range
+		unsafe {
+			values
+				.get_unchecked_mut(0..len as usize)
+				.iter_mut()
+				.zip(self.values.get_unchecked(0..len as usize).iter())
+				.for_each(|(dest, src)| {
+					dest.write(src.assume_init_ref().clone());
+				})
+		}
+		Self {
+			len,
+			is_internal,
+			keys,
+			values,
+		}
+	}
+}
+
 // SAFETY: len should always be >= 1
 // SAFETY: children must always be initialised in the range [0..self.data.len + 1)
 // SAFETY: struct is #[repr(C)] to ensure that LeafNode may be soundly transmuted into an InternalNode
@@ -1097,6 +1137,31 @@ impl<K, V> Drop for InternalNode<K, V> {
 	}
 }
 
+impl<K, V> Clone for InternalNode<K, V>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self {
+		let len = self.len() as usize;
+		let data = self.data.clone();
+		let mut children = uninit_array();
+		// SAFETY: we know self.values is valid in the range [0..len + 1)
+		// SAFETY: since we are cloning, the cloned array must also be valid in the same range
+		unsafe {
+			children
+				.get_unchecked_mut(0..len + 1)
+				.iter_mut()
+				.zip(self.children.get_unchecked(0..len + 1).iter())
+				.for_each(|(dest, src)| {
+					dest.write(src.assume_init_ref().clone());
+				})
+		}
+
+		Self { data, children }
+	}
+}
+
 #[repr(C)]
 pub union RootNode<K, V> {
 	leaf: ManuallyDrop<LeafNode<K, V>>,
@@ -1285,5 +1350,26 @@ impl<K, V> Drop for RootNode<K, V> {
 				ManuallyDrop::drop(&mut self.internal);
 			},
 		};
+	}
+}
+
+impl<K, V> Clone for RootNode<K, V>
+where
+	K: Clone,
+	V: Clone,
+{
+	fn clone(&self) -> Self {
+		let is_internal = self.is_internal();
+
+		match is_internal {
+			// SAFETY: we have already checked to make sure that the variant is correct
+			false => Self {
+				leaf: unsafe { self.leaf.clone() },
+			},
+			// SAFETY: we have already checked to make sure that the variant is correct
+			true => Self {
+				internal: unsafe { self.internal.clone() },
+			},
+		}
 	}
 }
