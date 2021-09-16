@@ -198,6 +198,34 @@ impl<K, V> RootNode<K, V> {
 		Some(value)
 	}
 
+	pub fn get(&self, key: &K) -> Option<&V>
+	where
+		K: Ord,
+	{
+		let is_internal = self.is_internal();
+
+		match is_internal {
+			// SAFETY: we have already checked to make sure that the variant is correct
+			false => unsafe { self.leaf.get(key) },
+			// SAFETY: we have already checked to make sure that the variant is correct
+			true => unsafe { self.internal.get(key) },
+		}
+	}
+
+	pub fn get_mut(&mut self, key: &K) -> Option<&mut V>
+	where
+		K: Ord,
+	{
+		let is_internal = self.is_internal();
+
+		match is_internal {
+			// SAFETY: we have already checked to make sure that the variant is correct
+			false => unsafe { self.leaf.get_mut(key) },
+			// SAFETY: we have already checked to make sure that the variant is correct
+			true => unsafe { self.internal.get_mut(key) },
+		}
+	}
+
 	// SAFETY: this node must be a leaf node
 	unsafe fn destructure_leaf(self) -> LeafNode<K, V> {
 		debug_assert!(!self.is_internal());

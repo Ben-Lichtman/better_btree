@@ -59,11 +59,11 @@ impl<K, V> InternalNode<K, V> {
 				let child_result = match child.is_internal() {
 					false => {
 						// SAFETY: we have just checked the type of the child ref so typecasting is sound
-						unsafe { child.into_leaf().insert(key, value) }
+						unsafe { child.into_leaf().deref_mut().insert(key, value) }
 					}
 					true => {
 						// SAFETY: we have just checked the type of the child ref so typecasting is sound
-						unsafe { child.into_internal().insert(key, value) }
+						unsafe { child.into_internal().deref_mut().insert(key, value) }
 					}
 				};
 
@@ -140,6 +140,7 @@ impl<K, V> InternalNode<K, V> {
 						left_child
 							.as_mut()
 							.into_leaf()
+							.deref_mut()
 							.swap_with_left_leaf(indexed_key_ptr, indexed_value_ptr)
 					},
 					// SAFETY: we have just checked the type of the child ref so typecasting is sound
@@ -147,6 +148,7 @@ impl<K, V> InternalNode<K, V> {
 						left_child
 							.as_mut()
 							.into_internal()
+							.deref_mut()
 							.swap_with_left_leaf(indexed_key_ptr, indexed_value_ptr)
 					},
 				}
@@ -168,7 +170,8 @@ impl<K, V> InternalNode<K, V> {
 				};
 				match child.is_internal() {
 					false => {
-						let mut child = unsafe { child.into_leaf() };
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_leaf().deref_mut() };
 						match child.remove(key) {
 							NodeRemoveResult::NotThere => NodeRemoveResult::NotThere,
 							NodeRemoveResult::Removed(k, v) | NodeRemoveResult::Merged(k, v) => {
@@ -183,7 +186,8 @@ impl<K, V> InternalNode<K, V> {
 						}
 					}
 					true => {
-						let mut child = unsafe { child.into_internal() };
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_internal().deref_mut() };
 						match child.remove(key) {
 							NodeRemoveResult::NotThere => NodeRemoveResult::NotThere,
 							NodeRemoveResult::Removed(k, v) | NodeRemoveResult::Merged(k, v) => {
@@ -196,6 +200,85 @@ impl<K, V> InternalNode<K, V> {
 								}
 							}
 						}
+					}
+				}
+			}
+		}
+	}
+
+	pub fn get(&self, key: &K) -> Option<&V>
+	where
+		K: Ord,
+	{
+		let index = search(key, self.data.valid_keys());
+
+		match index {
+			Ok(index) => {
+				// SAFETY: index < self.len therefore this is sound
+				let result = unsafe { self.data.values().get_unchecked(index).assume_init_ref() };
+				Some(result)
+			}
+			Err(index) => {
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
+				let child = unsafe {
+					self.children
+						.get_unchecked(index)
+						.assume_init_ref()
+						.as_ref()
+				};
+
+				match child.is_internal() {
+					false => {
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_leaf().deref() };
+						child.get(key)
+					}
+					true => {
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_internal().deref() };
+						child.get(key)
+					}
+				}
+			}
+		}
+	}
+
+	pub fn get_mut(&mut self, key: &K) -> Option<&mut V>
+	where
+		K: Ord,
+	{
+		let index = search(key, self.data.valid_keys());
+
+		match index {
+			Ok(index) => {
+				// SAFETY: index < self.len therefore this is sound
+				let result = unsafe {
+					self.data
+						.values_mut()
+						.get_unchecked_mut(index)
+						.assume_init_mut()
+				};
+				Some(result)
+			}
+			Err(index) => {
+				// SAFETY: index must be within the valid array subslice since it is always < self.len + 1
+				let child = unsafe {
+					self.children
+						.get_unchecked_mut(index)
+						.assume_init_mut()
+						.as_mut()
+				};
+
+				match child.is_internal() {
+					false => {
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_leaf().deref_mut() };
+						child.get_mut(key)
+					}
+					true => {
+						// SAFETY: we have just checked the type of the child ref so typecasting is sound
+						let child = unsafe { child.into_internal().deref_mut() };
+						child.get_mut(key)
 					}
 				}
 			}
@@ -341,9 +424,11 @@ impl<K, V> InternalNode<K, V> {
 		match rightmost_child.is_internal() {
 			false => rightmost_child
 				.into_leaf()
+				.deref_mut()
 				.swap_with_left_leaf(key_hole, value_hole),
 			true => rightmost_child
 				.into_internal()
+				.deref_mut()
 				.swap_with_left_leaf(key_hole, value_hole),
 		}
 
@@ -401,15 +486,17 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn rotate_left_internal(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut child = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+		let child = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_internal();
-		let mut sibling = (&mut *self
+			.into_internal()
+			.deref_mut();
+		let sibling = (&mut *self
 			.children
 			.get_unchecked_mut(pivot_index + 1)
 			.as_mut_ptr())
 			.as_mut()
-			.into_internal();
+			.into_internal()
+			.deref_mut();
 
 		let child_len = child.len();
 
@@ -438,15 +525,17 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn rotate_right_internal(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut child = (&mut *self
+		let child = (&mut *self
 			.children
 			.get_unchecked_mut(pivot_index + 1)
 			.as_mut_ptr())
 			.as_mut()
-			.into_internal();
-		let mut sibling = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+			.into_internal()
+			.deref_mut();
+		let sibling = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_internal();
+			.into_internal()
+			.deref_mut();
 
 		let sibling_len = sibling.len();
 
@@ -476,15 +565,17 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn rotate_left_leaf(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut child = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+		let child = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_leaf();
-		let mut sibling = (&mut *self
+			.into_leaf()
+			.deref_mut();
+		let sibling = (&mut *self
 			.children
 			.get_unchecked_mut(pivot_index + 1)
 			.as_mut_ptr())
 			.as_mut()
-			.into_leaf();
+			.into_leaf()
+			.deref_mut();
 
 		let child_len = child.len();
 
@@ -513,15 +604,17 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn rotate_right_leaf(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut child = (&mut *self
+		let child = (&mut *self
 			.children
 			.get_unchecked_mut(pivot_index + 1)
 			.as_mut_ptr())
 			.as_mut()
-			.into_leaf();
-		let mut sibling = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+			.into_leaf()
+			.deref_mut();
+		let sibling = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_leaf();
+			.into_leaf()
+			.deref_mut();
 
 		let sibling_len = sibling.len();
 
@@ -550,9 +643,10 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn merge_internal(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut left_node = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+		let left_node = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_internal();
+			.into_internal()
+			.deref_mut();
 
 		let ((parent_key, parent_value), right_node) = self.remove_unchecked_right(pivot_index);
 
@@ -609,9 +703,10 @@ impl<K, V> InternalNode<K, V> {
 	pub unsafe fn merge_leaf(&mut self, pivot_index: usize) {
 		debug_assert!(pivot_index < self.len());
 
-		let mut left_node = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
+		let left_node = (&mut *self.children.get_unchecked_mut(pivot_index).as_mut_ptr())
 			.as_mut()
-			.into_leaf();
+			.into_leaf()
+			.deref_mut();
 
 		let ((parent_key, parent_value), right_node) = self.remove_unchecked_right(pivot_index);
 

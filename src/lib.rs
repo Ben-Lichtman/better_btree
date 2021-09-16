@@ -2,6 +2,7 @@ mod node;
 mod node_ref;
 
 use crate::node::RootNode;
+use std::ops::Index;
 
 const B: u16 = 12;
 
@@ -50,6 +51,10 @@ where
 	pub fn insert(&mut self, key: K, value: V) -> Option<V> { self.root.insert(key, value) }
 
 	pub fn remove(&mut self, key: &K) -> Option<V> { self.root.remove(key) }
+
+	pub fn get(&self, key: &K) -> Option<&V> { self.root.get(key) }
+
+	pub fn get_mut(&mut self, key: &K) -> Option<&mut V> { self.root.get_mut(key) }
 }
 
 impl<K, V> Default for BTreeMap<K, V>
@@ -57,4 +62,13 @@ where
 	K: Ord,
 {
 	fn default() -> Self { Self::new() }
+}
+
+impl<K, V> Index<&K> for BTreeMap<K, V>
+where
+	K: Ord,
+{
+	type Output = V;
+
+	fn index(&self, index: &K) -> &Self::Output { self.get(index).expect("no entry found for key") }
 }

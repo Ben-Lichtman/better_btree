@@ -97,6 +97,38 @@ impl<K, V> LeafNode<K, V> {
 		}
 	}
 
+	pub fn get(&self, key: &K) -> Option<&V>
+	where
+		K: Ord,
+	{
+		let index = search(key, self.valid_keys());
+
+		match index {
+			Ok(index) => {
+				// SAFETY: index < self.len therefore this is sound
+				let result = unsafe { self.values.get_unchecked(index).assume_init_ref() };
+				Some(result)
+			}
+			Err(_) => None,
+		}
+	}
+
+	pub fn get_mut(&mut self, key: &K) -> Option<&mut V>
+	where
+		K: Ord,
+	{
+		let index = search(key, self.valid_keys());
+
+		match index {
+			Ok(index) => {
+				// SAFETY: index < self.len therefore this is sound
+				let result = unsafe { self.values.get_unchecked_mut(index).assume_init_mut() };
+				Some(result)
+			}
+			Err(_) => None,
+		}
+	}
+
 	pub fn keys(&self) -> &[MaybeUninit<K>; (B - 1) as usize] { &self.keys }
 
 	pub fn keys_mut(&mut self) -> &mut [MaybeUninit<K>; (B - 1) as usize] { &mut self.keys }

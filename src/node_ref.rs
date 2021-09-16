@@ -1,40 +1,37 @@
 pub mod marker;
 
 use crate::node::{internal_node::InternalNode, leaf_node::LeafNode};
-use core::{
-	fmt::Debug,
-	marker::PhantomData,
-	ops::{Deref, DerefMut},
-	ptr::NonNull,
-};
+use core::{fmt::Debug, marker::PhantomData, ptr::NonNull};
 
 // Type erased immutably borrowed pointer type which points to either a leaf or internal node
 pub struct NodeRef<K, V, BorrowType, NodeKind> {
 	pointer: NonNull<InternalNode<K, V>>,
 	_phantom: PhantomData<(BorrowType, NodeKind)>,
 }
-impl<'a, K, V, Type> Copy for NodeRef<K, V, marker::Immut<'a>, Type> {}
-impl<'a, K, V, Type> Clone for NodeRef<K, V, marker::Immut<'a>, Type> {
+
+impl<K, V, Type> Copy for NodeRef<K, V, marker::Immut<'_>, Type> {}
+
+impl<K, V, Type> Clone for NodeRef<K, V, marker::Immut<'_>, Type> {
 	fn clone(&self) -> Self { *self }
 }
 
-impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafNode>
+impl<K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafNode>
 where
 	K: Clone,
 	V: Clone,
 {
-	fn clone(&self) -> Self { self.deref().clone() }
+	fn clone(&self) -> Self { Self::from_boxed_leaf(Box::new(self.deref().clone())) }
 }
 
-impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::InternalNode>
+impl<K, V> Clone for NodeRef<K, V, marker::Owned, marker::InternalNode>
 where
 	K: Clone,
 	V: Clone,
 {
-	fn clone(&self) -> Self { self.deref().clone() }
+	fn clone(&self) -> Self { Self::from_boxed_internal(Box::new(self.deref().clone())) }
 }
 
-impl<'a, K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafOrInternal>
+impl<K, V> Clone for NodeRef<K, V, marker::Owned, marker::LeafOrInternal>
 where
 	K: Clone,
 	V: Clone,
@@ -70,12 +67,12 @@ where
 		match is_internal {
 			false => {
 				// SAFETY: we have already checked to make sure that the variant is correct
-				let noderef = unsafe { self.into_leaf() };
+				let noderef = unsafe { self.into_leaf().deref() };
 				noderef.fmt(f)
 			}
 			true => {
 				// SAFETY: we have already checked to make sure that the variant is correct
-				let noderef = unsafe { self.into_internal() };
+				let noderef = unsafe { self.into_internal().deref() };
 				noderef.fmt(f)
 			}
 		}
@@ -177,7 +174,7 @@ impl<K, V, Type> NodeRef<K, V, marker::Owned, Type> {
 	}
 }
 
-impl<'a, K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, marker::LeafNode> {
+impl<K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'_>, marker::LeafNode> {
 	fn from(input: &LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -187,7 +184,7 @@ impl<'a, K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, marker
 	}
 }
 
-impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'a>, marker::LeafNode> {
+impl<K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'_>, marker::LeafNode> {
 	fn from(input: &mut LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -197,7 +194,7 @@ impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'a>, mark
 	}
 }
 
-impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, marker::LeafNode> {
+impl<K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'_>, marker::LeafNode> {
 	fn from(input: &mut LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -207,7 +204,7 @@ impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, ma
 	}
 }
 
-impl<'a, K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, marker::InternalNode> {
+impl<K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'_>, marker::InternalNode> {
 	fn from(input: &LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -217,7 +214,7 @@ impl<'a, K, V> From<&LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'a>, marker
 	}
 }
 
-impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'a>, marker::InternalNode> {
+impl<K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'_>, marker::InternalNode> {
 	fn from(input: &mut LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -227,9 +224,7 @@ impl<'a, K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Mut<'a>, mark
 	}
 }
 
-impl<'a, K, V> From<&mut LeafNode<K, V>>
-	for NodeRef<K, V, marker::Immut<'a>, marker::InternalNode>
-{
+impl<K, V> From<&mut LeafNode<K, V>> for NodeRef<K, V, marker::Immut<'_>, marker::InternalNode> {
 	fn from(input: &mut LeafNode<K, V>) -> Self {
 		let pointer = NonNull::from(input).cast();
 		Self {
@@ -239,40 +234,64 @@ impl<'a, K, V> From<&mut LeafNode<K, V>>
 	}
 }
 
-impl<'a, K, V> Deref for NodeRef<K, V, marker::Immut<'a>, marker::LeafNode> {
-	type Target = LeafNode<K, V>;
+impl<'a, K, V> NodeRef<K, V, marker::Owned, marker::LeafNode> {
+	pub fn deref(&self) -> &'a LeafNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
 
-	// SAFETY: This pointer will always point to a valid leaf node as as invariant
-	fn deref(&self) -> &Self::Target { unsafe { self.pointer.cast().as_ref() } }
+	pub fn deref_mut(&mut self) -> &'a mut LeafNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_mut() }
+	}
 }
 
-impl<'a, K, V> Deref for NodeRef<K, V, marker::Immut<'a>, marker::InternalNode> {
-	type Target = InternalNode<K, V>;
+impl<'a, K, V> NodeRef<K, V, marker::Owned, marker::InternalNode> {
+	pub fn deref(&self) -> &'a InternalNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
 
-	// SAFETY: This pointer will always point to a valid internal node as as invariant
-	fn deref(&self) -> &Self::Target { unsafe { self.pointer.cast().as_ref() } }
+	pub fn deref_mut(&mut self) -> &'a mut InternalNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_mut() }
+	}
 }
 
-impl<'a, K, V> Deref for NodeRef<K, V, marker::Mut<'a>, marker::LeafNode> {
-	type Target = LeafNode<K, V>;
-
-	// SAFETY: This pointer will always point to a valid leaf node as as invariant
-	fn deref(&self) -> &Self::Target { unsafe { self.pointer.cast().as_ref() } }
+impl<'a, K, V> NodeRef<K, V, marker::Immut<'a>, marker::LeafNode> {
+	pub fn deref(&self) -> &'a LeafNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
 }
 
-impl<'a, K, V> Deref for NodeRef<K, V, marker::Mut<'a>, marker::InternalNode> {
-	type Target = InternalNode<K, V>;
-
-	// SAFETY: This pointer will always point to a valid internal node as as invariant
-	fn deref(&self) -> &Self::Target { unsafe { self.pointer.cast().as_ref() } }
+impl<'a, K, V> NodeRef<K, V, marker::Immut<'a>, marker::InternalNode> {
+	pub fn deref(&self) -> &'a InternalNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
 }
 
-impl<'a, K, V> DerefMut for NodeRef<K, V, marker::Mut<'a>, marker::LeafNode> {
-	// SAFETY: This pointer will always point to a valid leaf node as as invariant
-	fn deref_mut(&mut self) -> &mut Self::Target { unsafe { self.pointer.cast().as_mut() } }
+impl<'a, K, V> NodeRef<K, V, marker::Mut<'a>, marker::LeafNode> {
+	pub fn deref(&self) -> &'a LeafNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
+
+	pub fn deref_mut(&mut self) -> &'a mut LeafNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_mut() }
+	}
 }
 
-impl<'a, K, V> DerefMut for NodeRef<K, V, marker::Mut<'a>, marker::InternalNode> {
-	// SAFETY: This pointer will always point to a valid internal node as as invariant
-	fn deref_mut(&mut self) -> &mut Self::Target { unsafe { self.pointer.cast().as_mut() } }
+impl<'a, K, V> NodeRef<K, V, marker::Mut<'a>, marker::InternalNode> {
+	pub fn deref(&self) -> &'a InternalNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_ref() }
+	}
+
+	pub fn deref_mut(&mut self) -> &'a mut InternalNode<K, V> {
+		// SAFETY: This pointer will always point to a valid leaf node as as invariant
+		unsafe { self.pointer.cast().as_mut() }
+	}
 }
